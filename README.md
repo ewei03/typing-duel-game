@@ -32,8 +32,4 @@ If the server isn't running, the client falls back to a small local word list au
 - Combo counter — resets on any backspace or a wrong word, not just a wrong word at submission
 - Live WPM (standard 5-chars-per-word, counting only cleanly-typed words) and running accuracy
 
-## What's not here yet (later steps)
-
-- No sending/attack mechanic, no queue capacity or KO condition
-- No networking between two players — this is the single-player core loop only
-- Word bank is a flat hard-coded list, not the seeded-RNG generator from the architecture doc
+More to come!
