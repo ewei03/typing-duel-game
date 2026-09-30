@@ -11,7 +11,7 @@ export function TelegraphWarning({ pendingIncoming }: TelegraphWarningProps) {
 
   return (
     <div className="telegraph-warning">
-      incoming — {totalWords} word{totalWords === 1 ? "" : "s"}
+      incoming - {totalWords} word{totalWords === 1 ? "" : "s"}
     </div>
   );
 }
