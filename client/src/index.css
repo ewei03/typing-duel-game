@@ -141,7 +141,7 @@ body {
   font-size: 0.85rem;
 }
 
-.reset-button {
+.action-button {
   background: transparent;
   border: 1px solid var(--text-muted);
   color: var(--text-primary);
@@ -153,9 +153,68 @@ body {
   transition: border-color 0.15s, color 0.15s;
 }
 
-.reset-button:hover {
+.action-button:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.action-button.primary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.action-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.lobby {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding-top: 24px;
+  cursor: default;
+}
+
+.lobby-hint {
+  margin: 8px 0 0;
+  max-width: 36ch;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+@keyframes searching-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.status-message.searching {
+  animation: searching-pulse 1.4s ease-in-out infinite;
+}
+
+.countdown {
+  font-size: 2.5rem;
+  font-weight: 600;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.match-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+
+.opponent-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 0.8rem;
+  color: var(--text-upcoming);
 }
 
 .duel-layout {
@@ -230,13 +289,20 @@ body {
   background: var(--incorrect);
 }
 
-.telegraph-warning {
-  align-self: flex-start;
-  font-size: 0.75rem;
-  color: #d3a24f;
-  border: 1px solid #d3a24f;
-  border-radius: 4px;
-  padding: 4px 10px;
+@keyframes word-incoming {
+  0% {
+    opacity: 0;
+    background-color: rgba(211, 162, 79, 0.35);
+  }
+  100% {
+    opacity: 1;
+    background-color: transparent;
+  }
+}
+
+.word.incoming {
+  animation: word-incoming 0.6s ease-out;
+  border-radius: 3px;
 }
 
 .ko-message {

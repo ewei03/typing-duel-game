@@ -1,19 +1,23 @@
-import { ATTACK_THRESHOLD, QUEUE_CAPACITY, type PendingAttack } from "../game/attackEconomy";
+import { ATTACK_THRESHOLD, QUEUE_CAPACITY } from "../game/attackEconomy";
+import type { OpponentSnapshot } from "../game/useNetworkDuel";
 import { Bar } from "./Bar";
-import { TelegraphWarning } from "./TelegraphWarning";
 
 interface OpponentPanelProps {
-  meter: number;
-  backlog: number;
-  pendingIncoming: PendingAttack[];
-  ko: boolean;
+  opponent: OpponentSnapshot;
+  label: string;
+  connected: boolean;
 }
 
-export function OpponentPanel({ meter, backlog, pendingIncoming, ko }: OpponentPanelProps) {
+export function OpponentPanel({ opponent, label, connected }: OpponentPanelProps) {
+  const { meter, backlog, ko } = opponent;
   return (
-    <div className={`panel opponent-panel ${ko ? "ko" : ""}`}>
-      <h2>opponent</h2>
-      <TelegraphWarning pendingIncoming={pendingIncoming} />
+    <div className={`panel opponent-panel ${ko || !connected ? "ko" : ""}`}>
+      <h2>{label}</h2>
+      <div className="opponent-stats">
+        <span>{opponent.wpm} wpm</span>
+        <span>{opponent.accuracy}% acc</span>
+        <span>{opponent.combo}x combo</span>
+      </div>
       <Bar value={meter} max={ATTACK_THRESHOLD} label="attack" variant="meter" />
       <Bar
         value={backlog}
@@ -22,6 +26,7 @@ export function OpponentPanel({ meter, backlog, pendingIncoming, ko }: OpponentP
         variant={backlog > QUEUE_CAPACITY * 0.7 ? "danger" : "backlog"}
       />
       {ko && <p className="ko-message">KO'd — buried in words</p>}
+      {!connected && <p className="ko-message">left the match</p>}
     </div>
   );
 }

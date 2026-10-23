@@ -1,10 +1,10 @@
-import type { CompletedWord } from "../game/useTypingGame";
+import type { QueueWord, CompletedWord } from "../game/useNetworkDuel";
 
 const VISIBLE_BEFORE = 2;
 const VISIBLE_AFTER = 6;
 
 interface WordQueueProps {
-  words: string[];
+  words: QueueWord[];
   currentWordIndex: number;
   currentInput: string;
   currentWordHasError: boolean;
@@ -24,17 +24,22 @@ export function WordQueue({
 
   return (
     <div className="word-line">
-      {visible.map((word, i) => {
+      {visible.map((entry, i) => {
         const absoluteIndex = start + i;
+        // Attack-origin words get a brief fade-in highlight the first
+        // time they mount into view, instead of a separate warning
+        // banner — they already jump the queue to sit right after the
+        // current word, so this is effectively immediate.
+        const incomingClass = entry.fromAttack ? "incoming" : "";
 
         if (absoluteIndex < currentWordIndex) {
           const done = completedWords[absoluteIndex];
           return (
             <span
               key={absoluteIndex}
-              className={`word done ${done?.correct ? "correct" : "incorrect"}`}
+              className={`word done ${done?.correct ? "correct" : "incorrect"} ${incomingClass}`}
             >
-              {word}
+              {entry.text}
             </span>
           );
         }
@@ -43,9 +48,9 @@ export function WordQueue({
           return (
             <span
               key={absoluteIndex}
-              className={`word current ${currentWordHasError ? "has-error" : ""}`}
+              className={`word current ${currentWordHasError ? "has-error" : ""} ${incomingClass}`}
             >
-              {word.split("").map((char, ci) => {
+              {entry.text.split("").map((char, ci) => {
                 const typedChar = currentInput[ci];
                 let charClass = "untyped";
                 if (typedChar !== undefined) {
@@ -57,16 +62,16 @@ export function WordQueue({
                   </span>
                 );
               })}
-              {currentInput.length > word.length && (
-                <span className="incorrect-char">{currentInput.slice(word.length)}</span>
+              {currentInput.length > entry.text.length && (
+                <span className="incorrect-char">{currentInput.slice(entry.text.length)}</span>
               )}
             </span>
           );
         }
 
         return (
-          <span key={absoluteIndex} className="word upcoming">
-            {word}
+          <span key={absoluteIndex} className={`word upcoming ${incomingClass}`}>
+            {entry.text}
           </span>
         );
       })}
