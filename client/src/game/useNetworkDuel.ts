@@ -9,7 +9,11 @@ import type {
 } from "../../../shared/protocol";
 import { getPlayerId } from "./playerToken";
 
-const SERVER_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:3001";
+// In dev the server runs separately on :3001; a production build is served
+// by the server itself, so it connects back to wherever it was loaded from.
+const SERVER_URL =
+  (import.meta.env.VITE_API_URL as string | undefined) ??
+  (import.meta.env.DEV ? "http://localhost:3001" : window.location.origin);
 
 // Thin client: the server is authoritative for matchmaking and for
 // everything in a match except the characters currently being typed for

@@ -12,15 +12,13 @@ const EVENTS_PER_SEC = 30;
 const EVENT_BURST = 60;
 const PLAYER_ID_PATTERN = /^[0-9a-f]{32}$/;
 
-// Comma-separated list of origins the client is served from. Unset means
-// any origin, which is only acceptable while developing.
-function allowedOrigins(): string[] | "*" {
+// Comma-separated list of other origins allowed to talk to this server.
+// Only needed when the client is hosted somewhere else: unset means
+// same-origin only in production, and any origin while developing.
+function allowedOrigins(): string[] | "*" | false {
   const raw = process.env.CORS_ORIGINS?.trim();
   if (raw) return raw.split(",").map((o) => o.trim()).filter(Boolean);
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("CORS_ORIGINS must be set in production");
-  }
-  return "*";
+  return process.env.NODE_ENV === "production" ? false : "*";
 }
 
 const origin = allowedOrigins();
@@ -30,6 +28,12 @@ app.use(cors({ origin }));
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+// In production the built client is served from here too, so the whole
+// game is one service on one origin.
+if (process.env.STATIC_DIR) {
+  app.use(express.static(process.env.STATIC_DIR));
+}
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
@@ -93,4 +97,13 @@ io.on("connection", (socket: Socket) => {
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
 httpServer.listen(PORT, () => {
   console.log(`Typing duel server listening on http://localhost:${PORT}`);
+});
+
+// Hosts send SIGTERM before replacing the instance on a deploy. Matches
+// live in memory, so they're lost either way, but closing the sockets
+// cleanly sends every client off to reconnect to the new instance
+// straight away instead of waiting to time out.
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down");
+  io.close(() => process.exit(0));
 });

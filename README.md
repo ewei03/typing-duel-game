@@ -13,7 +13,7 @@ cd server
 npm install
 npm run dev
 ```
-Runs on http://localhost:3001 (`/api/health` for a liveness check). For a production build, `npm run build && npm start`; in production `CORS_ORIGINS` must be set to a comma-separated list of the origins the client is served from.
+Runs on http://localhost:3001 (`/api/health` for a liveness check).
 
 **Terminal 2 — client**
 ```
@@ -28,6 +28,28 @@ Code used by both sides (wire protocol types, the attack economy, keystroke repl
 **Playing a real match locally:** open the client in two browser tabs (or two browsers) and click **find match** in both. The first player waits in the queue; the second gets paired with them, and both start after a 3-second countdown. **practice vs bot** starts a solo match against a scripted opponent instead.
 
 To play across machines on the same network, run the client with `VITE_API_URL=http://<server-machine-ip>:3001 npm run dev -- --host` and open the printed network URL on the other machine.
+
+# Deploying
+
+The game ships as one Docker image: the server, also serving the built client, so everything is on one origin.
+
+```
+docker build -t typeoff .
+docker run -p 3001:3001 typeoff
+```
+
+Then open http://localhost:3001. Any host that runs a container and supports WebSockets works.
+
+It's currently hosted on [Render](https://render.com)'s free tier via `render.yaml`. To set it up, go to New → Blueprint in the Render dashboard and pick this repo; after that, each push to `main` deploys once CI passes. Free instances sleep after 15 idle minutes, so the first visit after a quiet spell takes about a minute to load. Moving to another host means adding that host's config and deleting `render.yaml`; nothing else changes.
+
+Settings, all optional (Render sets `PORT` itself):
+
+- `PORT`: port to listen on (default 3001)
+- `CORS_ORIGINS`: comma-separated origins allowed to connect, only needed if the client is hosted separately from the server
+
+Matches live in the server's memory, so a deploy or restart ends any in progress and sends players back to the lobby. Run a single instance: two instances wouldn't see each other's queue.
+
+CI (`.github/workflows/ci.yml`) typechecks, tests and builds both halves on every push and PR, then builds the image and checks it boots.
 
 ## What's implemented
 

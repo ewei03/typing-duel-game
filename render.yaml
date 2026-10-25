@@ -1,0 +1,15 @@
+# Render Blueprint: in the Render dashboard, New → Blueprint, then pick
+# this repo. Everything host-specific lives here; the Dockerfile itself
+# works anywhere.
+services:
+  - type: web
+    name: typeoff
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # Free instances sleep after 15 idle minutes and take about a minute
+    # to wake on the next visit. Fine for playtests.
+    plan: free
+    branch: main
+    healthCheckPath: /api/health
+    # Deploy only once CI has passed on the commit.
+    autoDeployTrigger: checksPass
