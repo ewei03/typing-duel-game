@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { useNetworkDuel, type MatchSnapshot } from "./game/useNetworkDuel";
-import { ATTACK_THRESHOLD, QUEUE_CAPACITY } from "./game/attackEconomy";
+import { useNetworkDuel } from "./game/useNetworkDuel";
+import { ATTACK_THRESHOLD, QUEUE_CAPACITY } from "../../shared/attackEconomy";
+import type { MatchSnapshot } from "../../shared/protocol";
 import { WordQueue } from "./components/WordQueue";
 import { StatsBar } from "./components/StatsBar";
 import { Bar } from "./components/Bar";
@@ -21,11 +22,12 @@ function App() {
   const match = duel.match;
   const phase = match?.phase;
 
-  // The input is disabled outside of play (which drops focus), so grab
-  // focus back the moment the countdown ends.
+  // The input is disabled outside of play or while offline (which drops
+  // focus), so grab focus back the moment typing is possible again.
+  const canType = duel.canType;
   useEffect(() => {
-    if (phase === "playing") inputRef.current?.focus();
-  }, [phase]);
+    if (canType) inputRef.current?.focus();
+  }, [canType]);
 
   return (
     <div className="app" onClick={() => inputRef.current?.focus()}>
@@ -34,7 +36,14 @@ function App() {
         <span className="subtitle">online duel — step 4{!duel.connected && " (connecting…)"}</span>
       </header>
 
-      {!duel.connected ? (
+      {duel.superseded ? (
+        <div className="lobby">
+          <p className="status-message">the game is open in another tab</p>
+          <button className="action-button primary" onClick={duel.reconnect}>
+            play here instead
+          </button>
+        </div>
+      ) : !match && !duel.connected ? (
         <p className="status-message">connecting to server…</p>
       ) : !match ? (
         <Lobby
@@ -49,6 +58,9 @@ function App() {
             <div className="countdown">{Math.max(1, Math.ceil(duel.countdownLeft / 1000))}</div>
           )}
           {match.result && <div className="result-banner">{resultText(match.result)}</div>}
+          {!duel.connected && (
+            <p className="status-message searching">connection lost — reconnecting…</p>
+          )}
 
           <div className="duel-layout">
             <div className={`panel you-panel ${match.you.ko ? "ko" : ""}`}>
@@ -70,10 +82,10 @@ function App() {
               <div className="game-area">
                 <WordQueue
                   words={match.you.words}
+                  wordOffset={match.you.wordOffset}
                   currentWordIndex={match.you.currentWordIndex}
                   currentInput={duel.currentInput}
                   currentWordHasError={duel.currentWordHasError}
-                  completedWords={match.you.completedWords}
                 />
                 <input
                   ref={inputRef}
@@ -84,7 +96,7 @@ function App() {
                   spellCheck={false}
                   autoComplete="off"
                   aria-label="Typing input"
-                  disabled={phase !== "playing"}
+                  disabled={!canType}
                 />
               </div>
             </div>
@@ -92,7 +104,7 @@ function App() {
             <OpponentPanel
               opponent={match.opponent}
               label={match.opponentKind === "bot" ? "practice bot" : "opponent"}
-              connected={match.opponentConnected}
+              status={match.opponentStatus}
             />
           </div>
 
@@ -101,7 +113,9 @@ function App() {
               <button
                 className="action-button primary"
                 onClick={duel.rematch}
-                disabled={!match.opponentConnected || match.rematch.you}
+                disabled={
+                  !duel.connected || match.opponentStatus !== "connected" || match.rematch.you
+                }
               >
                 {match.rematch.you
                   ? "waiting for opponent…"

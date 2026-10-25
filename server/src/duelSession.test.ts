@@ -1,12 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { DuelSession, COUNTDOWN_MS } from "./duelSession";
-import { ATTACK_THRESHOLD, QUEUE_CAPACITY, TELEGRAPH_MS } from "./attackEconomy";
+import { DuelSession, COUNTDOWN_MS, KEY_BURST, type Seat } from "./duelSession";
+import { ATTACK_THRESHOLD, QUEUE_CAPACITY, TELEGRAPH_MS } from "../../shared/attackEconomy";
+import { BACKSPACE } from "../../shared/keystrokes";
 
 function startedSession() {
   const s = new DuelSession(() => {});
   s.start();
   vi.advanceTimersByTime(COUNTDOWN_MS);
   return s;
+}
+
+// Types the seat's current word cleanly, one keystroke per character.
+function typeWord(s: DuelSession, seat: Seat) {
+  s.submitWord(seat, [...s.getCurrentWord(seat)]);
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -19,12 +25,12 @@ describe("DuelSession lifecycle", () => {
     expect(s.phase).toBe("countdown");
     expect(s.getSnapshot(0).countdownMs).toBe(COUNTDOWN_MS);
 
-    s.submitWord(0, s.getCurrentWord(0), false);
+    typeWord(s, 0);
     expect(s.players[0].currentWordIndex).toBe(0);
 
     vi.advanceTimersByTime(COUNTDOWN_MS);
     expect(s.phase).toBe("playing");
-    s.submitWord(0, s.getCurrentWord(0), false);
+    typeWord(s, 0);
     expect(s.players[0].currentWordIndex).toBe(1);
     expect(s.players[0].combo).toBe(1);
     s.destroy();
@@ -40,7 +46,7 @@ describe("DuelSession lifecycle", () => {
 
   it("start() again resets both players for a rematch", () => {
     const s = startedSession();
-    s.submitWord(1, s.getCurrentWord(1), false);
+    typeWord(s, 1);
     s.forfeit(0);
     s.start();
     expect(s.phase).toBe("countdown");
@@ -50,11 +56,53 @@ describe("DuelSession lifecycle", () => {
   });
 });
 
+describe("DuelSession keystroke checks", () => {
+  it("a word fixed with backspace still breaks the combo", () => {
+    const s = startedSession();
+    typeWord(s, 0);
+    const word = s.getCurrentWord(0);
+    s.submitWord(0, ["x", BACKSPACE, ...word]);
+    expect(s.players[0].combo).toBe(0);
+    expect(s.players[0].words[1].correct).toBe(false);
+    s.destroy();
+  });
+
+  it("counts words typed faster than a human could as misses", () => {
+    const s = startedSession();
+    // Drain the burst allowance with no time passing.
+    let typed = 0;
+    while (typed < KEY_BURST) {
+      typed += s.getCurrentWord(0).length + 1;
+      typeWord(s, 0);
+    }
+    typeWord(s, 0);
+    expect(s.players[0].combo).toBe(0);
+    expect(s.players[0].flaggedWords).toBeGreaterThan(0);
+
+    // After a pause the budget has refilled and words count again.
+    vi.advanceTimersByTime(2000);
+    typeWord(s, 0);
+    expect(s.players[0].combo).toBe(1);
+    s.destroy();
+  });
+
+  it("snapshots carry only a window of the queue around the current word", () => {
+    const s = startedSession();
+    for (let i = 0; i < 3; i++) typeWord(s, 0);
+    const you = s.getSnapshot(0).you;
+    expect(you.wordOffset).toBe(1);
+    expect(you.words).toHaveLength(9);
+    expect(you.words[you.currentWordIndex - you.wordOffset].text).toBe(s.getCurrentWord(0));
+    expect(you.words[0].correct).toBe(true);
+    s.destroy();
+  });
+});
+
 describe("DuelSession attacks between seats", () => {
   it("a burst from one seat lands as attack words in the other seat's queue", () => {
     const s = startedSession();
     s.players[0].meter = ATTACK_THRESHOLD - 0.01; // next correct word bursts
-    s.submitWord(0, s.getCurrentWord(0), false);
+    typeWord(s, 0);
     expect(s.players[1].pendingIncoming).toHaveLength(1);
 
     vi.advanceTimersByTime(TELEGRAPH_MS + 100);

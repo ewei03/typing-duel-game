@@ -1,25 +1,24 @@
-import { DuelSession, type DuelSnapshot, type Seat } from "./duelSession";
+import { DuelSession, type Seat } from "./duelSession";
 import { PracticeBot } from "./practiceBot";
+import type { LobbyEvent, MatchSnapshot, PresenceStatus } from "../../shared/protocol";
+
+// How long a dropped player's seat is held for them before it counts as
+// a forfeit. The match keeps running meanwhile, attacks and all.
+export const RECONNECT_GRACE_MS = 15_000;
 
 // The slice of a socket the matchmaker needs. Keeping it this small means
 // tests can drive the whole lobby/match lifecycle with plain objects.
+// `id` identifies the player, not the socket: a player who reconnects
+// shows up as a new Connection with the same id.
 export interface Connection {
   id: string;
   emit(event: string, payload: unknown): void;
 }
 
-export type LobbyStatus = "idle" | "queued";
-
-export interface MatchSnapshot extends DuelSnapshot {
-  opponentKind: "human" | "bot";
-  opponentConnected: boolean;
-  rematch: { you: boolean; opponent: boolean };
-}
-
 interface HumanOccupant {
   kind: "human";
   conn: Connection;
-  connected: boolean;
+  status: "connected" | "away" | "left";
   wantsRematch: boolean;
 }
 
@@ -39,7 +38,7 @@ class Match {
     const human = (conn: Connection): HumanOccupant => ({
       kind: "human",
       conn,
-      connected: true,
+      status: "connected",
       wantsRematch: false,
     });
     this.seats = [human(a), b === "bot" ? { kind: "bot", bot: null } : human(b)];
@@ -49,19 +48,26 @@ class Match {
     this.session.start();
   }
 
-  hasConnectedHumans(): boolean {
-    return this.seats.some((o) => o.kind === "human" && o.connected);
+  // Someone dropped but still within their grace period counts as here.
+  hasHumans(): boolean {
+    return this.seats.some((o) => o.kind === "human" && o.status !== "left");
   }
 
-  // Bots always want a rematch; a human who has left never will.
+  isConnectionFor(seat: Seat, conn: Connection): boolean {
+    const o = this.seats[seat];
+    return o.kind === "human" && o.conn === conn;
+  }
+
+  // Bots always want a rematch; a human who isn't connected can't.
   wantsRematch(seat: Seat): boolean {
     const o = this.seats[seat];
-    return o.kind === "bot" || (o.connected && o.wantsRematch);
+    return o.kind === "bot" || (o.status === "connected" && o.wantsRematch);
   }
 
-  isPresent(seat: Seat): boolean {
+  presence(seat: Seat): PresenceStatus {
     const o = this.seats[seat];
-    return o.kind === "bot" || o.connected;
+    if (o.kind === "bot" || o.status === "connected") return "connected";
+    return o.status === "away" ? "reconnecting" : "left";
   }
 
   requestRematch(seat: Seat) {
@@ -76,12 +82,28 @@ class Match {
     }
   }
 
+  markAway(seat: Seat) {
+    const o = this.seats[seat];
+    if (o.kind !== "human") return;
+    o.status = "away";
+    this.broadcast();
+  }
+
+  // Also sends the returning player a fresh snapshot to resume from.
+  reconnect(seat: Seat, conn: Connection) {
+    const o = this.seats[seat];
+    if (o.kind !== "human") return;
+    o.conn = conn;
+    o.status = "connected";
+    this.broadcast();
+  }
+
   // Marks the seat as gone *before* forfeiting so the departing player
   // isn't sent the result screen of a match they've already left.
   removeHuman(seat: Seat) {
     const o = this.seats[seat];
     if (o.kind !== "human") return;
-    o.connected = false;
+    o.status = "left";
     o.wantsRematch = false;
     if (this.session.phase === "finished") this.broadcast();
     else this.session.forfeit(seat);
@@ -94,13 +116,13 @@ class Match {
 
   private broadcast() {
     for (const [i, occupant] of this.seats.entries()) {
-      if (occupant.kind !== "human" || !occupant.connected) continue;
+      if (occupant.kind !== "human" || occupant.status !== "connected") continue;
       const seat = i as Seat;
       const opp: Seat = seat === 0 ? 1 : 0;
       const snapshot: MatchSnapshot = {
         ...this.session.getSnapshot(seat),
         opponentKind: this.seats[opp].kind,
-        opponentConnected: this.isPresent(opp),
+        opponentStatus: this.presence(opp),
         rematch: { you: this.wantsRematch(seat), opponent: this.wantsRematch(opp) },
       };
       occupant.conn.emit("match", snapshot);
@@ -108,15 +130,38 @@ class Match {
   }
 }
 
+function lobby(conn: Connection, status: LobbyEvent["status"]) {
+  conn.emit("lobby", { status } satisfies LobbyEvent);
+}
+
 /**
- * Lobby + quick-match queue. A connection is always in exactly one of
- * three places: idle in the lobby, waiting in the queue, or seated in a
- * match. Clients learn which via "lobby" ({ status }) and "match"
- * (a per-seat MatchSnapshot) events.
+ * Lobby + quick-match queue. A player is always in exactly one of three
+ * places: idle in the lobby, waiting in the queue, or seated in a match.
+ * Clients learn which via "lobby" ({ status }) and "match" (a per-seat
+ * MatchSnapshot) events.
  */
 export class Matchmaker {
   private queue: Connection[] = [];
   private seated = new Map<string, { match: Match; seat: Seat }>();
+  private graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  // A player's socket (re)connected: put them back wherever they were.
+  connect(conn: Connection) {
+    this.clearGrace(conn.id);
+
+    const entry = this.seated.get(conn.id);
+    if (entry) {
+      entry.match.reconnect(entry.seat, conn);
+      return;
+    }
+    const queued = this.queue.findIndex((c) => c.id === conn.id);
+    if (queued !== -1) {
+      this.queue[queued] = conn;
+      lobby(conn, "queued");
+      return;
+    }
+    lobby(conn, "idle");
+  }
 
   // Pairs with whoever has been waiting longest, or starts waiting.
   findMatch(conn: Connection) {
@@ -126,7 +171,7 @@ export class Matchmaker {
     const opponent = this.queue.shift();
     if (!opponent) {
       this.queue.push(conn);
-      conn.emit("lobby", { status: "queued" satisfies LobbyStatus });
+      lobby(conn, "queued");
       return;
     }
     this.seat(new Match(opponent, conn));
@@ -140,12 +185,12 @@ export class Matchmaker {
 
   cancelQueue(conn: Connection, notify = true) {
     this.queue = this.queue.filter((c) => c.id !== conn.id);
-    if (notify) conn.emit("lobby", { status: "idle" satisfies LobbyStatus });
+    if (notify) lobby(conn, "idle");
   }
 
-  submitWord(conn: Connection, text: string, hadError: boolean) {
+  submitWord(conn: Connection, keys: readonly string[]) {
     const entry = this.seated.get(conn.id);
-    entry?.match.session.submitWord(entry.seat, text, hadError);
+    entry?.match.session.submitWord(entry.seat, keys);
   }
 
   rematch(conn: Connection) {
@@ -155,18 +200,33 @@ export class Matchmaker {
 
   // Back to the lobby. Leaving a live match forfeits it.
   leaveMatch(conn: Connection, notify = true) {
+    this.clearGrace(conn.id);
     const entry = this.seated.get(conn.id);
     if (entry) {
       this.seated.delete(conn.id);
       entry.match.removeHuman(entry.seat);
-      if (!entry.match.hasConnectedHumans()) entry.match.destroy();
+      if (!entry.match.hasHumans()) entry.match.destroy();
     }
-    if (notify) conn.emit("lobby", { status: "idle" satisfies LobbyStatus });
+    if (notify) lobby(conn, "idle");
   }
 
+  // Dropping out of the queue is immediate — otherwise someone could be
+  // paired while gone — but a seat in a match is held for the grace
+  // period. A connection that's already been replaced by a newer one for
+  // the same player (a second tab taking over) has nothing to clean up.
   disconnect(conn: Connection) {
-    this.cancelQueue(conn, false);
-    this.leaveMatch(conn, false);
+    this.queue = this.queue.filter((c) => c !== conn);
+
+    const entry = this.seated.get(conn.id);
+    if (!entry || !entry.match.isConnectionFor(entry.seat, conn)) return;
+    entry.match.markAway(entry.seat);
+    this.graceTimers.set(
+      conn.id,
+      setTimeout(() => {
+        this.graceTimers.delete(conn.id);
+        this.leaveMatch(conn, false);
+      }, RECONNECT_GRACE_MS)
+    );
   }
 
   // Introspection for tests / logging.
@@ -175,6 +235,12 @@ export class Matchmaker {
   }
   get activeMatches() {
     return new Set([...this.seated.values()].map((e) => e.match)).size;
+  }
+
+  private clearGrace(playerId: string) {
+    const timer = this.graceTimers.get(playerId);
+    if (timer) clearTimeout(timer);
+    this.graceTimers.delete(playerId);
   }
 
   // The match broadcasts its opening countdown from its constructor,

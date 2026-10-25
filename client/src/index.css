@@ -191,7 +191,7 @@ body {
   }
 }
 
-.status-message.searching {
+.searching {
   animation: searching-pulse 1.4s ease-in-out infinite;
 }
 

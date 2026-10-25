@@ -1,6 +1,6 @@
-// Pure logic for the attack economy: no React, no networking. Safe to unit
-// test directly, and shaped so it can move into a server-authoritative
-// module later without changes.
+// Pure logic for the attack economy: no React, no networking. The server
+// runs it authoritatively; the client only imports the constants to draw
+// its meters.
 
 export const ATTACK_THRESHOLD = 30; // meter needed to generate one "unit" of attack power
 export const TELEGRAPH_MS = 1000; // delay between a send and it landing

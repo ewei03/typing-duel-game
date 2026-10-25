@@ -1,4 +1,4 @@
-import type { LobbyStatus } from "../game/useNetworkDuel";
+import type { LobbyStatus } from "../../../shared/protocol";
 
 interface LobbyProps {
   status: LobbyStatus;

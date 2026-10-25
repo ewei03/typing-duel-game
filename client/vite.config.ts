@@ -5,5 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    // Code shared with the server lives in ../shared, outside this root.
+    fs: { allow: [".."] },
   },
 });

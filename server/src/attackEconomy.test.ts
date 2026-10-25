@@ -9,7 +9,7 @@ import {
   powerToWords,
   resolveDueAttacks,
   isOverCapacity,
-} from "./attackEconomy";
+} from "../../shared/attackEconomy";
 
 describe("getComboMultiplier", () => {
   it("is 1x with no combo", () => {
